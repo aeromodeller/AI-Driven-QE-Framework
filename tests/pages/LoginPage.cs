@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using AI.Driven.QE.Framework.Utils;
 using Microsoft.Playwright;
 
 namespace AI.Driven.QE.Framework.Pages;
@@ -9,8 +10,6 @@ namespace AI.Driven.QE.Framework.Pages;
 /// </summary>
 public sealed class LoginPage
 {
-    private const string LoginUrl = "https://www.saucedemo.com/";
-
     private readonly IPage _page;
     private readonly ILocator _usernameInput;
     private readonly ILocator _passwordInput;
@@ -41,7 +40,25 @@ public sealed class LoginPage
     /// <returns>A task that completes when the login form has been submitted.</returns>
     public async Task Login(string user, string pass)
     {
-        await _page.GotoAsync(LoginUrl);
+        await NavigateAsync();
+        await SubmitCredentialsAsync(user, pass);
+    }
+
+    /// <summary>
+    /// Navigates to the configured login page.
+    /// </summary>
+    public async Task NavigateAsync()
+    {
+        await _page.GotoAsync(TestSettings.LoginUrl);
+    }
+
+    /// <summary>
+    /// Submits credentials on the currently displayed login page.
+    /// </summary>
+    /// <param name="user">The username to enter.</param>
+    /// <param name="pass">The password to enter.</param>
+    public async Task SubmitCredentialsAsync(string user, string pass)
+    {
         await _usernameInput.FillAsync(user);
         await _passwordInput.FillAsync(pass);
         await _loginButton.ClickAsync();

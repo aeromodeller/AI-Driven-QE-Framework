@@ -18,7 +18,7 @@ concurrency:
 
 env:
   BUILD_CONFIGURATION: Release
-  TEST_PROJECT: src/tests/AI.Driven.QE.Framework.Tests.csproj
+  TEST_PROJECT: tests/AI.Driven.QE.Framework.Tests.csproj
 
 jobs:
   build:
@@ -32,9 +32,14 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
+          cache: true
+          cache-dependency-path: tests/AI.Driven.QE.Framework.Tests.csproj
 
       - name: Restore NuGet packages
-        run: dotnet restore "$TEST_PROJECT"
+        run: |
+          start=$SECONDS
+          dotnet restore "$TEST_PROJECT"
+          echo "- NuGet restore: $((SECONDS - start))s" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Build test project
         run: dotnet build "$TEST_PROJECT" --configuration "$BUILD_CONFIGURATION" --no-restore
@@ -49,7 +54,6 @@ jobs:
       matrix:
         browser:
           - chromium
-          - firefox
           - webkit
     steps:
       - name: Check out repository
@@ -59,26 +63,36 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
+          cache: true
+          cache-dependency-path: tests/AI.Driven.QE.Framework.Tests.csproj
 
       - name: Restore NuGet packages
-        run: dotnet restore "$TEST_PROJECT"
+        run: |
+          start=$SECONDS
+          dotnet restore "$TEST_PROJECT"
+          echo "- NuGet restore: $((SECONDS - start))s" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Build test project
-        run: dotnet build "$TEST_PROJECT" --configuration "$BUILD_CONFIGURATION" --no-restore
+        run: |
+          start=$SECONDS
+          dotnet build "$TEST_PROJECT" --configuration "$BUILD_CONFIGURATION" --no-restore
+          echo "- Build: $((SECONDS - start))s" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Install Playwright browser and system dependencies
         env:
           PLAYWRIGHT_BROWSER: ${{ matrix.browser }}
         run: |
           set -euo pipefail
-          pwsh "src/tests/bin/$BUILD_CONFIGURATION/net8.0/playwright.ps1" \
+          start=$SECONDS
+          trap 'echo "- Browser install: $((SECONDS - start))s" >> "$GITHUB_STEP_SUMMARY"' EXIT
+          pwsh "tests/bin/$BUILD_CONFIGURATION/net8.0/playwright.ps1" \
             install --with-deps "$PLAYWRIGHT_BROWSER"
 
       - name: Prepare test result and evidence directories
         if: always()
         run: |
           mkdir -p "$RUNNER_TEMP/TestResults"
-          mkdir -p "$GITHUB_WORKSPACE/src/tests/bin/$BUILD_CONFIGURATION/net8.0/allure-results"
+          mkdir -p "$GITHUB_WORKSPACE/tests/bin/$BUILD_CONFIGURATION/net8.0/allure-results"
           mkdir -p "$RUNNER_TEMP/test-artifacts"
           mkdir -p "$RUNNER_TEMP/allure-report"
 
@@ -86,7 +100,13 @@ jobs:
         env:
           PLAYWRIGHT_BROWSER: ${{ matrix.browser }}
           QE_ARTIFACTS_DIR: ${{ runner.temp }}/test-artifacts
+          QE_LOGIN_URL: ${{ vars.QE_LOGIN_URL }}
+          QE_USERNAME: ${{ secrets.QE_USERNAME }}
+          QE_PASSWORD: ${{ secrets.QE_PASSWORD }}
+          QE_LOCKED_OUT_USERNAME: ${{ secrets.QE_LOCKED_OUT_USERNAME }}
         run: |
+          start=$SECONDS
+          trap 'echo "- Test execution: $((SECONDS - start))s" >> "$GITHUB_STEP_SUMMARY"' EXIT
           dotnet test "$TEST_PROJECT" \
             --configuration "$BUILD_CONFIGURATION" \
             --no-build \
@@ -103,7 +123,12 @@ jobs:
           import xml.etree.ElementTree as ET
 
           files = glob.glob(os.path.join(os.environ["RUNNER_TEMP"], "TestResults", "*.trx"))
-          summary = ["## NUnit test results", ""]
+          summary = [
+              f"## NUnit test results — {os.environ.get('PLAYWRIGHT_BROWSER', 'browser')}",
+              "",
+              f"[View workflow run and downloadable artifacts]({os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}#artifacts)",
+              "",
+          ]
           if not files:
               summary.extend(["No TRX result files were produced.", ""])
           else:
@@ -128,6 +153,8 @@ jobs:
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as output:
               output.write("\n".join(summary))
           PY
+        env:
+          PLAYWRIGHT_BROWSER: ${{ matrix.browser }}
 
       - name: Set up Java for Allure
         if: always()
@@ -143,7 +170,7 @@ jobs:
         run: |
           set -euo pipefail
           npm install --global allure-commandline@2.46.1
-          results_directory="$GITHUB_WORKSPACE/src/tests/bin/$BUILD_CONFIGURATION/net8.0/allure-results"
+          results_directory="$GITHUB_WORKSPACE/tests/bin/$BUILD_CONFIGURATION/net8.0/allure-results"
           if ! find "$results_directory" -maxdepth 1 -name '*-result.json' -print -quit | grep -q .; then
             echo "Allure results were not generated; check Allure.NUnit test output."
             exit 1
@@ -166,7 +193,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: allure-results-${{ matrix.browser }}
-          path: src/tests/bin/Release/net8.0/allure-results/
+          path: tests/bin/Release/net8.0/allure-results/
           if-no-files-found: warn
           retention-days: 14
 

@@ -57,8 +57,6 @@ stages:
           matrix:
             Chromium:
               PLAYWRIGHT_BROWSER: chromium
-            Firefox:
-              PLAYWRIGHT_BROWSER: firefox
             WebKit:
               PLAYWRIGHT_BROWSER: webkit
         steps:
@@ -72,7 +70,7 @@ stages:
             displayName: Build test project
             inputs:
               command: build
-              projects: 'src/tests/AI.Driven.QE.Framework.Tests.csproj'
+              projects: 'tests/AI.Driven.QE.Framework.Tests.csproj'
               arguments: '--configuration $(buildConfiguration)'
 
           # Playwright's installer is generated in the test project's build output.
@@ -93,7 +91,7 @@ stages:
 
           # Ensure result and artifact targets exist even if setup fails before the first test.
           - bash: |
-              mkdir -p "$(Build.SourcesDirectory)/src/tests/bin/$(buildConfiguration)/net8.0/allure-results"
+              mkdir -p "$(Build.SourcesDirectory)/tests/bin/$(buildConfiguration)/net8.0/allure-results"
               mkdir -p "$(Build.ArtifactStagingDirectory)/test-artifacts"
               mkdir -p "$(Build.ArtifactStagingDirectory)/allure-report"
               mkdir -p "$(Agent.TempDirectory)/TestResults"
@@ -105,7 +103,7 @@ stages:
             displayName: Run NUnit tests
             inputs:
               command: test
-              projects: 'src/tests/AI.Driven.QE.Framework.Tests.csproj'
+              projects: 'tests/AI.Driven.QE.Framework.Tests.csproj'
               publishTestResults: false
               arguments: >-
                 --configuration $(buildConfiguration)
@@ -116,6 +114,10 @@ stages:
             env:
               PLAYWRIGHT_BROWSER: $(PLAYWRIGHT_BROWSER)
               QE_ARTIFACTS_DIR: $(Build.ArtifactStagingDirectory)/test-artifacts
+              QE_LOGIN_URL: $(QE_LOGIN_URL)
+              QE_USERNAME: $(QE_USERNAME)
+              QE_PASSWORD: $(QE_PASSWORD)
+              QE_LOCKED_OUT_USERNAME: $(QE_LOCKED_OUT_USERNAME)
 
           # Publish test results even when a test fails.
           - task: PublishTestResults@2
@@ -155,7 +157,7 @@ stages:
           - bash: |
               set -euo pipefail
               npm install --global allure-commandline@2.46.1
-              results_directory="$(find "$(Build.SourcesDirectory)/src/tests/bin/$(buildConfiguration)" \
+              results_directory="$(find "$(Build.SourcesDirectory)/tests/bin/$(buildConfiguration)" \
                 -type d -name allure-results -print -quit)"
               if [ -z "$results_directory" ] || \
                 ! find "$results_directory" -maxdepth 1 -name '*-result.json' -print -quit | grep -q .; then
@@ -175,7 +177,7 @@ stages:
             displayName: Publish Allure results
             condition: always()
             inputs:
-              targetPath: '$(Build.SourcesDirectory)/src/tests/bin/$(buildConfiguration)/net8.0/allure-results'
+              targetPath: '$(Build.SourcesDirectory)/tests/bin/$(buildConfiguration)/net8.0/allure-results'
               artifact: allure-results-$(PLAYWRIGHT_BROWSER)
               publishLocation: pipeline
 

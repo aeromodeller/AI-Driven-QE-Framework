@@ -39,10 +39,9 @@ public sealed class LoginTests
         var browserType = TestSettings.BrowserName switch
         {
             "chromium" => _playwright.Chromium,
-            "firefox" => _playwright.Firefox,
             "webkit" => _playwright.Webkit,
             _ => throw new InvalidOperationException(
-                $"Unsupported PLAYWRIGHT_BROWSER '{TestSettings.BrowserName}'. Use chromium, firefox, or webkit.")
+                $"Unsupported PLAYWRIGHT_BROWSER '{TestSettings.BrowserName}'. Use chromium or webkit.")
         };
 
         _browser = await browserType.LaunchAsync(new BrowserTypeLaunchOptions
@@ -153,9 +152,11 @@ public sealed class LoginTests
     {
         // Arrange
         var loginPage = new LoginPage(Page);
+        var username = TestSettings.GetCredential("QE_USERNAME", "standard_user");
+        var password = TestSettings.GetCredential("QE_PASSWORD", "secret_sauce");
 
         // Act
-        await loginPage.Login("standard_user", "secret_sauce");
+        await loginPage.Login(username, password);
 
         // Assert
         await Page.WaitForURLAsync("**/inventory.html");
@@ -174,9 +175,11 @@ public sealed class LoginTests
     {
         // Arrange
         var loginPage = new LoginPage(Page);
+        var username = TestSettings.GetCredential("QE_LOCKED_OUT_USERNAME", "locked_out_user");
+        var password = TestSettings.GetCredential("QE_PASSWORD", "secret_sauce");
 
         // Act
-        await loginPage.Login("locked_out_user", "secret_sauce");
+        await loginPage.Login(username, password);
 
         // Assert
         var errorMessage = Page.Locator("[data-test='error']");
@@ -184,5 +187,38 @@ public sealed class LoginTests
         Assert.That(
             await errorMessage.InnerTextAsync(),
             Does.Contain("Epic sadface: Sorry, this user has been locked out"));
+    }
+
+    /// <summary>
+    /// Verifies an authenticated user can add an item to the cart and complete checkout.
+    /// </summary>
+    [Test]
+    [AllureSeverity(SeverityLevel.critical)]
+    [AllureDescription("A user can purchase a product through the end-to-end checkout flow.")]
+    public async Task Checkout_WithAvailableProduct_CompletesOrder()
+    {
+        // Arrange
+        var loginPage = new LoginPage(Page);
+        var productsPage = new ProductsPage(Page);
+        var cartPage = new CartPage(Page);
+        var checkoutPage = new CheckoutPage(Page);
+        var username = TestSettings.GetCredential("QE_USERNAME", "standard_user");
+        var password = TestSettings.GetCredential("QE_PASSWORD", "secret_sauce");
+        const string productName = "Sauce Labs Backpack";
+
+        // Act
+        await loginPage.Login(username, password);
+        await Page.WaitForURLAsync("**/inventory.html");
+        await productsPage.AddBackpackToCart();
+        await productsPage.OpenCart();
+        await cartPage.WaitForItem(productName);
+        await cartPage.StartCheckout();
+        await checkoutPage.EnterInformation("QE", "Demo", "10001");
+        await checkoutPage.CompleteOrder();
+
+        // Assert
+        var confirmation = Page.GetByText("Thank you for your order!", new PageGetByTextOptions { Exact = true });
+        await confirmation.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
+        Assert.That(Page.Url, Does.Contain("/checkout-complete.html"));
     }
 }

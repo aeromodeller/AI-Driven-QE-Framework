@@ -2,6 +2,7 @@
 [Bb]in/
 [Oo]bj/
 artifacts/
+*.feature.cs
 
 # Test output and Playwright reports
 TestResults/
