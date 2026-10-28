@@ -23,7 +23,7 @@ env:
 jobs:
   build:
     name: Build .NET test project
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -42,7 +42,7 @@ jobs:
   test:
     name: Test (${{ matrix.browser }})
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       max-parallel: 3

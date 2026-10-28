@@ -11,7 +11,7 @@ pr:
 
 # Use a Microsoft-hosted Linux agent and a consistent build configuration.
 pool:
-  vmImage: ubuntu-latest
+  vmImage: ubuntu-24.04
 
 variables:
   buildConfiguration: Release

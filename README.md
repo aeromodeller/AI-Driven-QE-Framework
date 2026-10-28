@@ -149,11 +149,11 @@ Create a pipeline using [azure-pipelines.yml](./pipelines/azure-pipelines.yml). 
 - Raw Allure results and a generated HTML Allure report.
 - Per-test screenshots and failure traces.
 
-The YAML is a repository template; validate it in your Azure DevOps organization and enable the required pipeline permissions before the client demo. The sample target is an external public demo site, so results depend on its availability and network access.
+The pipeline pins agents to Ubuntu 24.04 because the current Playwright version does not support the newer Ubuntu 26.04 hosted image. Validate the YAML in your Azure DevOps organization and enable the required pipeline permissions before the client demo. The sample target is an external public demo site, so results depend on its availability and network access.
 
 ## GitHub Actions
 
-The workflow at [quality.yml](./.github/workflows/quality.yml) runs on pushes and pull requests targeting `main`, and can also be started manually with `workflow_dispatch`. It builds the test project, then runs the Chromium/Firefox/WebKit matrix. Each matrix job publishes TRX results, raw Allure results, a generated Allure HTML report, and screenshots/failure traces as downloadable artifacts retained for 14 days. The test summary is also added to the GitHub Actions job summary.
+The workflow at [quality.yml](./.github/workflows/quality.yml) runs on pushes and pull requests targeting `main`, and can also be started manually with `workflow_dispatch`. It builds the test project on Ubuntu 24.04, then runs the Chromium/Firefox/WebKit matrix on the same supported image. Each matrix job publishes TRX results, raw Allure results, a generated Allure HTML report, and screenshots/failure traces as downloadable artifacts retained for 14 days. The test summary is also added to the GitHub Actions job summary.
 
 No repository secrets are required for the SauceDemo demo accounts. When adapting the workflow to a client application, use GitHub Actions secrets or an approved secret manager instead of committing credentials.
 
