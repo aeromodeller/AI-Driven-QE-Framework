@@ -1,87 +1,153 @@
 # AI-Accelerated Quality Engineering Blueprint
 
-🚀 A practical blueprint for modernizing quality engineering with browser automation, CI/CD, and generative AI.
+🚀 A client-demo POC showing how browser automation, risk-based test design, CI/CD, and human-reviewed GenAI assistance can work together in a quality engineering workflow.
 
-## The value proposition
+> **POC scope:** This repository exercises the public SauceDemo sample application. It demonstrates an approach, not measured customer time savings or a production-ready test platform. Adapt the URL, selectors, data, and controls before using it with a client application.
 
-Legacy testing often relies on slow, brittle manual regression cycles that delay feedback and releases. This blueprint demonstrates how teams can shift repeatable checks into AI-accelerated, browser-based automation—helping shorten feedback loops, reduce time-to-market, and give engineers more time to focus on high-value quality risks.
+## Why this approach
 
-The goal is not to replace engineering judgment with AI. It is to combine reliable automated execution with AI-assisted quality practices so teams can scale coverage while keeping people in control.
+Legacy regression cycles can delay feedback and releases. This blueprint demonstrates a shift of repeatable checks into browser automation, with CI feedback and reusable test-design prompts to help teams review quality risks earlier.
+
+The POC demonstrates:
+
+- ✅ Repeatable positive and negative login checks in Chromium, Firefox, and WebKit.
+- ⚡ CI feedback with TRX results and Allure reports.
+- 🔎 Per-test screenshots, plus Playwright traces on failures, to speed up triage.
+- 🧠 A reusable GenAI prompt for drafting scenarios, with explicit human review and no runtime AI dependency.
+
+No time-to-market or coverage improvement is claimed as a measured result; quantify those outcomes against a client baseline during a pilot.
+
+### Sample report
+
+The committed snapshot below shows the Allure report for the two passing WebKit login scenarios. Each CI browser job publishes its own report and evidence artifacts.
+
+![Allure report snapshot showing the two SauceDemo login tests passing in WebKit](./docs/assets/allure-demo.png)
 
 ## Tech stack
 
 | Technology | Role |
 |---|---|
-| C# and .NET | Test implementation and reusable framework code |
-| Microsoft Playwright | Cross-browser web UI automation |
+| C# / .NET 8 | Test implementation and shared framework utilities |
+| Microsoft Playwright | Browser automation and trace capture |
 | NUnit | Test organization and execution |
-| Azure DevOps | CI/CD pipeline orchestration |
-| Allure | Test reporting and result visualization |
-| Generative AI (GenAI) | Prompt-driven support for test design and quality workflows |
+| Azure DevOps Pipelines | CI/CD and browser-matrix execution |
+| Allure | Test reports, metadata, and evidence attachments |
+| GenAI prompt | Human-reviewed candidate test-scenario design |
 
-## Architecture highlights
+## Architecture
 
-- 🧱 **Page Object Model:** Encapsulates login-page selectors and actions in `src/pages/LoginPage.cs` to keep UI interactions reusable.
-- 🔄 **CI/CD integration:** `pipelines/azure-pipelines.yml` defines build and test stages, browser installation, and test/report artifact publishing.
-- 🧠 **AI-prompting strategy:** `ai-prompts/` is the home for reusable prompts that support consistent, reviewable GenAI-assisted quality workflows.
-- 📊 **Reporting:** NUnit tests use Allure attributes to capture test descriptions and severity for reporting.
-- ✅ **Test coverage example:** `src/tests/LoginTests.cs` demonstrates successful-login and locked-out-user scenarios using Arrange-Act-Assert.
-
-## Project structure
-
-```text
-src/
-  pages/       # Page Object Model classes
-  tests/       # NUnit and Playwright tests
-  utils/       # Shared test helpers
-pipelines/     # Azure DevOps YAML pipelines
-ai-prompts/    # Reusable GenAI prompts
+```mermaid
+flowchart LR
+    Req[Approved acceptance criteria] --> Prompt[Reusable GenAI prompt]
+    Prompt --> Review[Human quality-engineer review]
+    Review --> Tests[NUnit scenarios]
+    Tests --> POM[LoginPage Page Object]
+    POM --> PW[Playwright]
+    PW --> Browsers[Chromium / Firefox / WebKit]
+    Browsers --> App[SauceDemo sample application]
+    Tests --> Evidence[Screenshots and failure traces]
+    Tests --> Results[TRX and Allure results]
+    CI[Azure DevOps pipeline] --> Tests
+    Results --> Report[Published Allure report]
+    Evidence --> Artifacts[Published test evidence]
 ```
 
-## How to run
+### Design highlights
+
+- **Page Object Model:** [LoginPage.cs](./src/pages/LoginPage.cs) keeps SauceDemo navigation and login selectors out of test assertions.
+- **Test settings:** [TestSettings.cs](./src/utils/TestSettings.cs) centralizes browser selection, artifact output, and safe filenames.
+- **Risk-focused examples:** [LoginTests.cs](./src/tests/LoginTests.cs) covers successful sign-in and the locked-out-user behavior.
+- **AI-assisted planning:** [login-scenario-generation.md](./ai-prompts/login-scenario-generation.md) includes a reusable prompt, illustrative scenarios, and a review checklist. It does not call an AI service or generate code in CI.
+- **Failure diagnostics:** Each test attaches a screenshot to NUnit/Allure results. Failed tests also save a Playwright trace ZIP for Trace Viewer.
+
+## Repository structure
+
+```text
+ai-prompts/
+  login-scenario-generation.md   # Reusable, human-reviewed scenario prompt
+docs/
+  assets/
+    allure-demo.png              # Sample Allure report screenshot
+pipelines/
+  azure-pipelines.yml            # Build, cross-browser tests, reports, artifacts
+src/
+  pages/
+    LoginPage.cs                 # SauceDemo Page Object
+  tests/
+    AI.Driven.QE.Framework.Tests.csproj
+    LoginTests.cs
+    allureConfig.json
+  utils/
+    TestSettings.cs              # Browser and evidence settings
+```
+
+## Run locally
 
 ### Prerequisites
 
-- .NET 8 SDK
-- PowerShell (`pwsh`) to run Playwright's browser installer
-- Node.js and npm if you want to generate the Allure HTML report locally
-- Internet access to reach the public SauceDemo sample application
+- .NET 8 SDK and runtime
+- PowerShell (`pwsh`) for Playwright's browser installer
+- Internet access to SauceDemo
+- Node.js/npm and Java 17+ if generating an Allure HTML report locally
 
-### Clone the repository
+Clone the repository and restore/build the test project:
 
 ```bash
 git clone https://github.com/aeromodeller/AI-Driven-QE-Framework.git
 cd AI-Driven-QE-Framework
-```
-
-### Restore, install browsers, and run tests
-
-The test project file is [AI.Driven.QE.Framework.Tests.csproj](./src/tests/AI.Driven.QE.Framework.Tests.csproj). It targets .NET 8 and references NUnit, Playwright, and Allure.NUnit.
-
-```bash
 dotnet restore src/tests/AI.Driven.QE.Framework.Tests.csproj
 dotnet build src/tests/AI.Driven.QE.Framework.Tests.csproj --configuration Release
 ```
 
-Install Chromium after building:
+Install Chromium for the default local run:
 
 ```bash
 pwsh src/tests/bin/Release/net8.0/playwright.ps1 install chromium
 ```
 
-Run the test suite:
+Run the suite and save screenshots under the repository's `test-artifacts/` directory:
 
 ```bash
+export QE_ARTIFACTS_DIR="$PWD/test-artifacts"
 dotnet test src/tests/AI.Driven.QE.Framework.Tests.csproj --configuration Release
 ```
 
-The tests target `https://www.saucedemo.com/` using its public `standard_user` and `locked_out_user` demo accounts with password `secret_sauce`. The valid-login test verifies navigation to `/inventory.html`; the locked-out test checks SauceDemo's `[data-test="error"]` message.
-
-To generate an Allure HTML report locally after the configured Allure NUnit adapter has produced results:
+To run another browser locally, install it and select it through `PLAYWRIGHT_BROWSER`:
 
 ```bash
-npm install --global allure-commandline
-allure generate "$(find src/tests -type d -name allure-results -print -quit)" --clean --output allure-report
+pwsh src/tests/bin/Release/net8.0/playwright.ps1 install firefox webkit
+PLAYWRIGHT_BROWSER=firefox dotnet test src/tests/AI.Driven.QE.Framework.Tests.csproj --configuration Release
+PLAYWRIGHT_BROWSER=webkit dotnet test src/tests/AI.Driven.QE.Framework.Tests.csproj --configuration Release
 ```
 
-The pipeline builds the project, installs Chromium, runs tests, and publishes TRX and Allure report artifacts.
+The suite uses SauceDemo's public demonstration accounts: `standard_user` and `locked_out_user`, both with the demo password `secret_sauce`. Do not reuse these credentials for other systems. The success test verifies the Products inventory route; the negative test checks the locked-out error.
+
+### View reports and failure evidence
+
+The NUnit/Allure results are written under `src/tests/bin/Release/net8.0/allure-results`. Generate an HTML report after running tests:
+
+```bash
+npm install --global allure-commandline@2.46.1
+allure generate src/tests/bin/Release/net8.0/allure-results --clean --output allure-report
+allure open allure-report
+```
+
+Screenshots are saved to `test-artifacts/` locally and attached to the test results. Failed tests also save a `*-trace.zip`; open it with Playwright's Trace Viewer:
+
+```bash
+pwsh src/tests/bin/Release/net8.0/playwright.ps1 show-trace test-artifacts/<test-name>-chromium-trace.zip
+```
+
+## Azure DevOps
+
+Create a pipeline using [azure-pipelines.yml](./pipelines/azure-pipelines.yml). It builds the .NET 8 test project and runs a Chromium/Firefox/WebKit matrix. Each browser job publishes:
+
+- NUnit TRX test results.
+- Raw Allure results and a generated HTML Allure report.
+- Per-test screenshots and failure traces.
+
+The YAML is a repository template; validate it in your Azure DevOps organization and enable the required pipeline permissions before the client demo. The sample target is an external public demo site, so results depend on its availability and network access.
+
+## Client-pilot considerations
+
+Before adapting this POC to a client application, agree on authorized environments and test data, replace the sample URL and selectors, store credentials in an approved secret manager, and confirm data retention/access policies for screenshots and traces. Add a client-specific baseline before presenting ROI or time-to-market claims.

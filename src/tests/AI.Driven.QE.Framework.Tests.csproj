@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <Compile Include="../pages/**/*.cs" Link="pages/%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="../utils/**/*.cs" Link="utils/%(RecursiveDir)%(Filename)%(Extension)" />
     <None Update="allureConfig.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

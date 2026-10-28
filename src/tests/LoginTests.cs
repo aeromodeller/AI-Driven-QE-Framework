@@ -1,10 +1,14 @@
+using System;
+using System.IO;
 using System.Threading.Tasks;
 using Allure.Net.Commons;
 using Allure.Net.Commons.Attributes;
 using Allure.NUnit;
 using AI.Driven.QE.Framework.Pages;
+using AI.Driven.QE.Framework.Utils;
 using Microsoft.Playwright;
 using NUnit.Framework;
+using NUnit.Framework.Interfaces;
 
 namespace AI.Driven.QE.Framework.Tests;
 
@@ -15,8 +19,10 @@ namespace AI.Driven.QE.Framework.Tests;
 [AllureNUnit]
 public sealed class LoginTests
 {
-    private IPlaywright _playwright = null!;
-    private IBrowser _browser = null!;
+    private IPlaywright? _playwright;
+    private IBrowser? _browser;
+    private IBrowserContext? _context;
+    private bool _tracingStarted;
 
     /// <summary>
     /// Gets the browser page used by the current test.
@@ -30,11 +36,29 @@ public sealed class LoginTests
     public async Task SetUp()
     {
         _playwright = await Playwright.CreateAsync();
-        _browser = await _playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
+        var browserType = TestSettings.BrowserName switch
         {
-            Headless = true
+            "chromium" => _playwright.Chromium,
+            "firefox" => _playwright.Firefox,
+            "webkit" => _playwright.Webkit,
+            _ => throw new InvalidOperationException(
+                $"Unsupported PLAYWRIGHT_BROWSER '{TestSettings.BrowserName}'. Use chromium, firefox, or webkit.")
+        };
+
+        _browser = await browserType.LaunchAsync(new BrowserTypeLaunchOptions
+        {
+            Headless = true,
+            Timeout = 30_000
         });
-        Page = await _browser.NewPageAsync();
+        _context = await _browser.NewContextAsync();
+        await _context.Tracing.StartAsync(new TracingStartOptions
+        {
+            Screenshots = true,
+            Snapshots = true,
+            Sources = true
+        });
+        _tracingStarted = true;
+        Page = await _context.NewPageAsync();
     }
 
     /// <summary>
@@ -43,12 +67,80 @@ public sealed class LoginTests
     [TearDown]
     public async Task TearDown()
     {
-        if (_browser is not null)
-        {
-            await _browser.CloseAsync();
-        }
+        var failed = TestContext.CurrentContext.Result.Outcome.Status == TestStatus.Failed;
+        var artifactDirectory = TestSettings.ArtifactDirectory;
+        var testName = TestSettings.SanitizeFileName(TestContext.CurrentContext.Test.Name);
+        var browserName = TestSettings.SanitizeFileName(TestSettings.BrowserName);
+        var screenshotPath = Path.Combine(artifactDirectory, $"{testName}-{browserName}.png");
+        var tracePath = Path.Combine(artifactDirectory, $"{testName}-{browserName}-trace.zip");
 
-        _playwright?.Dispose();
+        try
+        {
+            if (_context is not null && Page is not null)
+            {
+                Directory.CreateDirectory(artifactDirectory);
+                var screenshot = await Page.ScreenshotAsync(new PageScreenshotOptions { FullPage = true });
+                await File.WriteAllBytesAsync(screenshotPath, screenshot);
+                TestContext.AddTestAttachment(
+                    screenshotPath,
+                    failed ? "Failure screenshot" : "Test completion screenshot");
+                AllureApi.AddAttachment(
+                    failed ? "Failure screenshot" : "Test completion screenshot",
+                    "image/png",
+                    screenshot,
+                    "png");
+            }
+        }
+        finally
+        {
+            try
+            {
+                if (_tracingStarted && _context is not null)
+                {
+                    await _context.Tracing.StopAsync(new TracingStopOptions
+                    {
+                        Path = failed ? tracePath : null
+                    });
+                    _tracingStarted = false;
+                }
+            }
+            finally
+            {
+                try
+                {
+                    if (failed && File.Exists(tracePath))
+                    {
+                        TestContext.AddTestAttachment(tracePath, "Playwright trace");
+                        AllureApi.AddAttachment("Playwright trace", "application/zip", tracePath);
+                    }
+                }
+                finally
+                {
+                    try
+                    {
+                        if (_context is not null)
+                        {
+                            await _context.CloseAsync();
+                        }
+                    }
+                    finally
+                    {
+                        try
+                        {
+                            if (_browser is not null)
+                            {
+                                await _browser.CloseAsync();
+                            }
+                        }
+                        finally
+                        {
+                            _playwright?.Dispose();
+                        }
+
+                    }
+                }
+            }
+        }
     }
 
     /// <summary>
@@ -66,15 +158,18 @@ public sealed class LoginTests
         await loginPage.Login("standard_user", "secret_sauce");
 
         // Assert
+        await Page.WaitForURLAsync("**/inventory.html");
+        await Page.GetByText("Products", new PageGetByTextOptions { Exact = true })
+            .WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
         Assert.That(Page.Url, Does.Contain("/inventory.html"));
     }
 
     /// <summary>
-    /// Verifies that an incorrect password does not complete the login flow.
+    /// Verifies that SauceDemo blocks a locked-out user from signing in.
     /// </summary>
     [Test]
     [AllureSeverity(SeverityLevel.normal)]
-    [AllureDescription("A user with an incorrect password receives a login error.")]
+    [AllureDescription("A locked-out user receives an explanatory login error.")]
     public async Task Login_WithLockedOutUser_ShowsError()
     {
         // Arrange
@@ -84,8 +179,10 @@ public sealed class LoginTests
         await loginPage.Login("locked_out_user", "secret_sauce");
 
         // Assert
+        var errorMessage = Page.Locator("[data-test='error']");
+        await errorMessage.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
         Assert.That(
-            await Page.Locator("[data-test='error']").InnerTextAsync(),
+            await errorMessage.InnerTextAsync(),
             Does.Contain("Epic sadface: Sorry, this user has been locked out"));
     }
 }

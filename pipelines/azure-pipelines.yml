@@ -43,15 +43,24 @@ stages:
               projects: '**/*.csproj'
               arguments: '--configuration $(buildConfiguration) --no-restore'
 
-  # Compile the test project on this stage's agent, install its Playwright browsers,
-  # and run the NUnit suite. Stage agents are independent, so build outputs are not shared.
+  # Stage agents are independent, so each browser job builds the test project,
+  # installs its browser, and runs an isolated copy of the suite.
   - stage: Test
     displayName: Test
     dependsOn: Build
     condition: succeeded()
     jobs:
       - job: RunPlaywrightTests
-        displayName: Run Playwright tests
+        displayName: Run Playwright tests ($(PLAYWRIGHT_BROWSER))
+        strategy:
+          maxParallel: 3
+          matrix:
+            Chromium:
+              PLAYWRIGHT_BROWSER: chromium
+            Firefox:
+              PLAYWRIGHT_BROWSER: firefox
+            WebKit:
+              PLAYWRIGHT_BROWSER: webkit
         steps:
           - task: UseDotNet@2
             displayName: Install .NET SDK
@@ -60,10 +69,10 @@ stages:
               version: 8.x
 
           - task: DotNetCoreCLI@2
-            displayName: Build test projects
+            displayName: Build test project
             inputs:
               command: build
-              projects: '**/*Tests.csproj'
+              projects: 'src/tests/AI.Driven.QE.Framework.Tests.csproj'
               arguments: '--configuration $(buildConfiguration)'
 
           # Playwright's installer is generated in the test project's build output.
@@ -77,8 +86,19 @@ stages:
                 echo "Confirm the test project references Microsoft.Playwright."
                 exit 1
               fi
-              pwsh "$playwright_script" install --with-deps chromium
-            displayName: Install Playwright Chromium and dependencies
+              pwsh "$playwright_script" install --with-deps "$PLAYWRIGHT_BROWSER"
+            displayName: Install $(PLAYWRIGHT_BROWSER) and dependencies
+            env:
+              PLAYWRIGHT_BROWSER: $(PLAYWRIGHT_BROWSER)
+
+          # Ensure result and artifact targets exist even if setup fails before the first test.
+          - bash: |
+              mkdir -p "$(Build.SourcesDirectory)/src/tests/bin/$(buildConfiguration)/net8.0/allure-results"
+              mkdir -p "$(Build.ArtifactStagingDirectory)/test-artifacts"
+              mkdir -p "$(Build.ArtifactStagingDirectory)/allure-report"
+              mkdir -p "$(Agent.TempDirectory)/TestResults"
+            displayName: Prepare test artifact directories
+            condition: always()
 
           # Save TRX results outside the source tree for reliable publication.
           - task: DotNetCoreCLI@2
@@ -93,6 +113,9 @@ stages:
                 --no-restore
                 --logger "trx;LogFileName=playwright-tests.trx"
                 --results-directory "$(Agent.TempDirectory)/TestResults"
+            env:
+              PLAYWRIGHT_BROWSER: $(PLAYWRIGHT_BROWSER)
+              QE_ARTIFACTS_DIR: $(Build.ArtifactStagingDirectory)/test-artifacts
 
           # Publish test results even when a test fails.
           - task: PublishTestResults@2
@@ -105,8 +128,10 @@ stages:
               failTaskOnFailedTests: true
 
           # Upload the TRX files separately for download from the pipeline run.
-          - bash: mkdir -p "$(Agent.TempDirectory)/TestResults"
-            displayName: Ensure test results artifact directory exists
+          - bash: |
+              mkdir -p "$(Agent.TempDirectory)/TestResults"
+              mkdir -p "$(Build.ArtifactStagingDirectory)/test-artifacts"
+            displayName: Ensure artifact directories exist
             condition: always()
 
           - task: PublishPipelineArtifact@1
@@ -114,30 +139,51 @@ stages:
             condition: always()
             inputs:
               targetPath: '$(Agent.TempDirectory)/TestResults'
-              artifact: test-results
+              artifact: test-results-$(PLAYWRIGHT_BROWSER)
+              publishLocation: pipeline
+
+          # Publish test screenshots and failure trace archives for review and debugging.
+          - task: PublishPipelineArtifact@1
+            displayName: Publish screenshots and failure traces
+            condition: always()
+            inputs:
+              targetPath: '$(Build.ArtifactStagingDirectory)/test-artifacts'
+              artifact: test-artifacts-$(PLAYWRIGHT_BROWSER)
               publishLocation: pipeline
 
           # Generate an HTML Allure report from results produced by the NUnit adapter.
           - bash: |
               set -euo pipefail
-              npm install --global allure-commandline
-              results_directory="$(find "$(Build.SourcesDirectory)" \
+              npm install --global allure-commandline@2.46.1
+              results_directory="$(find "$(Build.SourcesDirectory)/src/tests/bin/$(buildConfiguration)" \
                 -type d -name allure-results -print -quit)"
-              if [ -z "$results_directory" ]; then
-                echo "Could not find Allure results. Confirm Allure.NUnit is configured in the test project."
+              if [ -z "$results_directory" ] || \
+                ! find "$results_directory" -maxdepth 1 -name '*-result.json' -print -quit | grep -q .; then
+                echo "Allure results were not generated; check Allure.NUnit configuration and test output."
                 exit 1
               fi
+              printf 'Browser=%s\nFramework=.NET 8\nTarget=SauceDemo\n' \
+                "$(PLAYWRIGHT_BROWSER)" > "$results_directory/environment.properties"
               allure generate "$results_directory" \
                 --clean \
                 --output "$(Build.ArtifactStagingDirectory)/allure-report"
-            displayName: Generate Allure report
+            displayName: Generate Allure report ($(PLAYWRIGHT_BROWSER))
             condition: always()
+
+          # Publish raw Allure result files for report regeneration or trend aggregation.
+          - task: PublishPipelineArtifact@1
+            displayName: Publish Allure results
+            condition: always()
+            inputs:
+              targetPath: '$(Build.SourcesDirectory)/src/tests/bin/$(buildConfiguration)/net8.0/allure-results'
+              artifact: allure-results-$(PLAYWRIGHT_BROWSER)
+              publishLocation: pipeline
 
           # Upload the generated Allure HTML report as a downloadable pipeline artifact.
           - task: PublishPipelineArtifact@1
-            displayName: Publish Allure report artifact
+            displayName: Publish Allure report ($(PLAYWRIGHT_BROWSER))
             condition: always()
             inputs:
               targetPath: '$(Build.ArtifactStagingDirectory)/allure-report'
-              artifact: allure-report
+              artifact: allure-report-$(PLAYWRIGHT_BROWSER)
               publishLocation: pipeline

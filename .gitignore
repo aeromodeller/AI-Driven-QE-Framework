@@ -10,6 +10,7 @@ playwright-report/
 blob-report/
 allure-results/
 allure-report/
+test-artifacts/
 
 # IDE and editor files
 .vs/
