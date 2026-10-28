@@ -1,0 +1,189 @@
+name: Quality Engineering
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BUILD_CONFIGURATION: Release
+  TEST_PROJECT: src/tests/AI.Driven.QE.Framework.Tests.csproj
+
+jobs:
+  build:
+    name: Build .NET test project
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore NuGet packages
+        run: dotnet restore "$TEST_PROJECT"
+
+      - name: Build test project
+        run: dotnet build "$TEST_PROJECT" --configuration "$BUILD_CONFIGURATION" --no-restore
+
+  test:
+    name: Test (${{ matrix.browser }})
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        browser:
+          - chromium
+          - firefox
+          - webkit
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore NuGet packages
+        run: dotnet restore "$TEST_PROJECT"
+
+      - name: Build test project
+        run: dotnet build "$TEST_PROJECT" --configuration "$BUILD_CONFIGURATION" --no-restore
+
+      - name: Install Playwright browser and system dependencies
+        env:
+          PLAYWRIGHT_BROWSER: ${{ matrix.browser }}
+        run: |
+          set -euo pipefail
+          pwsh "src/tests/bin/$BUILD_CONFIGURATION/net8.0/playwright.ps1" \
+            install --with-deps "$PLAYWRIGHT_BROWSER"
+
+      - name: Prepare test result and evidence directories
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/TestResults"
+          mkdir -p "$GITHUB_WORKSPACE/src/tests/bin/$BUILD_CONFIGURATION/net8.0/allure-results"
+          mkdir -p "$RUNNER_TEMP/test-artifacts"
+          mkdir -p "$RUNNER_TEMP/allure-report"
+
+      - name: Run NUnit and Playwright tests
+        env:
+          PLAYWRIGHT_BROWSER: ${{ matrix.browser }}
+          QE_ARTIFACTS_DIR: ${{ runner.temp }}/test-artifacts
+        run: |
+          dotnet test "$TEST_PROJECT" \
+            --configuration "$BUILD_CONFIGURATION" \
+            --no-build \
+            --no-restore \
+            --logger "trx;LogFileName=playwright-tests.trx" \
+            --results-directory "$RUNNER_TEMP/TestResults"
+
+      - name: Add test results to job summary
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import glob
+          import os
+          import xml.etree.ElementTree as ET
+
+          files = glob.glob(os.path.join(os.environ["RUNNER_TEMP"], "TestResults", "*.trx"))
+          summary = ["## NUnit test results", ""]
+          if not files:
+              summary.extend(["No TRX result files were produced.", ""])
+          else:
+              summary.extend(["| Result | Test |", "|---|---|"])
+              totals = {"passed": 0, "failed": 0, "other": 0}
+              for file in files:
+                  root = ET.parse(file).getroot()
+                  counters = next((node for node in root.iter() if node.tag.endswith("Counters")), None)
+                  if counters is not None:
+                      totals["passed"] += int(counters.attrib.get("passed", 0))
+                      totals["failed"] += int(counters.attrib.get("failed", 0))
+                      totals["other"] += int(counters.attrib.get("notExecuted", 0))
+                  for test in (node for node in root.iter() if node.tag.endswith("UnitTestResult")):
+                      outcome = test.attrib.get("outcome", "Unknown")
+                      name = test.attrib.get("testName", "Unnamed test").replace("|", "\\|")
+                      summary.append(f"| {outcome} | `{name}` |")
+              summary.extend([
+                  "",
+                  f"**Passed:** {totals['passed']} · **Failed:** {totals['failed']} · **Not executed:** {totals['other']}",
+                  "",
+              ])
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as output:
+              output.write("\n".join(summary))
+          PY
+
+      - name: Set up Java for Allure
+        if: always()
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Generate Allure HTML report
+        if: always()
+        env:
+          PLAYWRIGHT_BROWSER: ${{ matrix.browser }}
+        run: |
+          set -euo pipefail
+          npm install --global allure-commandline@2.46.1
+          results_directory="$GITHUB_WORKSPACE/src/tests/bin/$BUILD_CONFIGURATION/net8.0/allure-results"
+          if ! find "$results_directory" -maxdepth 1 -name '*-result.json' -print -quit | grep -q .; then
+            echo "Allure results were not generated; check Allure.NUnit test output."
+            exit 1
+          fi
+          printf 'Browser=%s\nFramework=.NET 8\nTarget=SauceDemo\n' \
+            "$PLAYWRIGHT_BROWSER" > "$results_directory/environment.properties"
+          allure generate "$results_directory" --clean --output "$RUNNER_TEMP/allure-report"
+
+      - name: Upload TRX test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.browser }}
+          path: ${{ runner.temp }}/TestResults/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload Allure results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-results-${{ matrix.browser }}
+          path: src/tests/bin/Release/net8.0/allure-results/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload Allure HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-report-${{ matrix.browser }}
+          path: ${{ runner.temp }}/allure-report/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload screenshots and failure traces
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-artifacts-${{ matrix.browser }}
+          path: ${{ runner.temp }}/test-artifacts/
+          if-no-files-found: warn
+          retention-days: 14
