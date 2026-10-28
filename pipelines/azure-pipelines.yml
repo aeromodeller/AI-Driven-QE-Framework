@@ -1,0 +1,143 @@
+# Run CI for changes to the main branch and pull requests targeting it.
+trigger:
+  branches:
+    include:
+      - main
+
+pr:
+  branches:
+    include:
+      - main
+
+# Use a Microsoft-hosted Linux agent and a consistent build configuration.
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  buildConfiguration: Release
+
+stages:
+  # Restore NuGet dependencies and compile all .NET projects.
+  - stage: Build
+    displayName: Build
+    jobs:
+      - job: BuildProjects
+        displayName: Restore and build projects
+        steps:
+          - task: UseDotNet@2
+            displayName: Install .NET SDK
+            inputs:
+              packageType: sdk
+              version: 8.x
+
+          - task: DotNetCoreCLI@2
+            displayName: Restore NuGet packages
+            inputs:
+              command: restore
+              projects: '**/*.csproj'
+
+          - task: DotNetCoreCLI@2
+            displayName: Build projects
+            inputs:
+              command: build
+              projects: '**/*.csproj'
+              arguments: '--configuration $(buildConfiguration) --no-restore'
+
+  # Compile the test project on this stage's agent, install its Playwright browsers,
+  # and run the NUnit suite. Stage agents are independent, so build outputs are not shared.
+  - stage: Test
+    displayName: Test
+    dependsOn: Build
+    condition: succeeded()
+    jobs:
+      - job: RunPlaywrightTests
+        displayName: Run Playwright tests
+        steps:
+          - task: UseDotNet@2
+            displayName: Install .NET SDK
+            inputs:
+              packageType: sdk
+              version: 8.x
+
+          - task: DotNetCoreCLI@2
+            displayName: Build test projects
+            inputs:
+              command: build
+              projects: '**/*Tests.csproj'
+              arguments: '--configuration $(buildConfiguration)'
+
+          # Playwright's installer is generated in the test project's build output.
+          - bash: |
+              set -euo pipefail
+              playwright_script="$(find "$(Build.SourcesDirectory)" \
+                -path '*/bin/$(buildConfiguration)/net*/playwright.ps1' \
+                -print -quit)"
+              if [ -z "$playwright_script" ]; then
+                echo "Could not find Playwright's generated playwright.ps1 installer."
+                echo "Confirm the test project references Microsoft.Playwright."
+                exit 1
+              fi
+              pwsh "$playwright_script" install --with-deps chromium
+            displayName: Install Playwright Chromium and dependencies
+
+          # Save TRX results outside the source tree for reliable publication.
+          - task: DotNetCoreCLI@2
+            displayName: Run NUnit tests
+            inputs:
+              command: test
+              projects: 'src/tests/AI.Driven.QE.Framework.Tests.csproj'
+              publishTestResults: false
+              arguments: >-
+                --configuration $(buildConfiguration)
+                --no-build
+                --no-restore
+                --logger "trx;LogFileName=playwright-tests.trx"
+                --results-directory "$(Agent.TempDirectory)/TestResults"
+
+          # Publish test results even when a test fails.
+          - task: PublishTestResults@2
+            displayName: Publish test results
+            condition: always()
+            inputs:
+              testResultsFormat: VSTest
+              testResultsFiles: '*.trx'
+              searchFolder: '$(Agent.TempDirectory)/TestResults'
+              failTaskOnFailedTests: true
+
+          # Upload the TRX files separately for download from the pipeline run.
+          - bash: mkdir -p "$(Agent.TempDirectory)/TestResults"
+            displayName: Ensure test results artifact directory exists
+            condition: always()
+
+          - task: PublishPipelineArtifact@1
+            displayName: Publish test results artifact
+            condition: always()
+            inputs:
+              targetPath: '$(Agent.TempDirectory)/TestResults'
+              artifact: test-results
+              publishLocation: pipeline
+
+          # Generate an HTML Allure report from results produced by the NUnit adapter.
+          - bash: |
+              set -euo pipefail
+              npm install --global allure-commandline
+              results_directory="$(find "$(Build.SourcesDirectory)" \
+                -type d -name allure-results -print -quit)"
+              if [ -z "$results_directory" ]; then
+                echo "Could not find Allure results. Confirm Allure.NUnit is configured in the test project."
+                exit 1
+              fi
+              allure generate "$results_directory" \
+                --clean \
+                --output "$(Build.ArtifactStagingDirectory)/allure-report"
+            displayName: Generate Allure report
+            condition: always()
+
+          # Upload the generated Allure HTML report as a downloadable pipeline artifact.
+          - task: PublishPipelineArtifact@1
+            displayName: Publish Allure report artifact
+            condition: always()
+            inputs:
+              targetPath: '$(Build.ArtifactStagingDirectory)/allure-report'
+              artifact: allure-report
+              publishLocation: pipeline

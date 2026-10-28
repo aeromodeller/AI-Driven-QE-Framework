@@ -1,0 +1,29 @@
+# .NET build output
+[Bb]in/
+[Oo]bj/
+artifacts/
+
+# Test output and Playwright reports
+TestResults/
+test-results/
+playwright-report/
+blob-report/
+allure-results/
+allure-report/
+
+# IDE and editor files
+.vs/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# OS-generated files
+.DS_Store
+Thumbs.db
