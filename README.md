@@ -59,7 +59,7 @@ flowchart LR
 - **Test settings:** [TestSettings.cs](./utils/TestSettings.cs) centralizes browser selection, artifact output, and safe filenames.
 - **Risk-focused examples:** [LoginTests.cs](./tests/LoginTests.cs) covers successful sign-in, a locked-out user, and the end-to-end add-to-cart and checkout flow.
 - **Behavior-driven development:** [Login.feature](./tests/Features/Login.feature) expresses the same customer journeys in Gherkin. Reqnroll bindings are organized under `StepDefinitions/` and browser lifecycle hooks under `Hooks/`; both reuse the existing Page Objects and NUnit test runner.
-- **Gherkin navigation in VS Code:** Open this repository as the workspace and install the recommended Cucumber (Gherkin) Full Support extension. The workspace settings parse Reqnroll `[Given]`, `[When]`, and `[Then]` attributes in `tests/StepDefinitions/` for step completion and navigation. Reload the VS Code window after installing the extension.
+- **Gherkin navigation in VS Code:** Open this repository as the workspace and use the Reqnroll IDE Support extension. The workspace maps `.feature` files to Reqnroll's native language mode for step navigation and completion. Disable other Gherkin extensions for this workspace if they conflict over `.feature` files, then reload VS Code.
 - **AI-assisted planning:** [login-scenario-generation.md](./ai-prompts/login-scenario-generation.md) includes a reusable prompt, illustrative scenarios, and a review checklist. It does not call an AI service or generate code in CI.
 - **Failure diagnostics:** Each test attaches a screenshot to NUnit/Allure results. Failed tests also save a Playwright trace ZIP for Trace Viewer.
 

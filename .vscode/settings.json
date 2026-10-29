@@ -1,10 +1,6 @@
 {
-  "cucumberautocomplete.steps": [
-    "tests/StepDefinitions/*.cs"
-  ],
-  "cucumberautocomplete.gherkinDefinitionPart": "\\[(Given|When|Then)\\(",
-  "cucumberautocomplete.stepRegExSymbol": "\"",
-  "cucumberautocomplete.pureTextSteps": true,
-  "cucumberautocomplete.strictGherkinCompletion": false,
-  "cucumberautocomplete.strictGherkinValidation": false
+  "files.associations": {
+    "*.feature": "reqnroll"
+  },
+  "reqnroll.trace.server": "verbose"
 }
