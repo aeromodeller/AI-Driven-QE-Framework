@@ -181,7 +181,7 @@ jobs:
 
       - name: Upload TRX test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-results-${{ matrix.browser }}
           path: ${{ runner.temp }}/TestResults/
@@ -190,7 +190,7 @@ jobs:
 
       - name: Upload Allure results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: allure-results-${{ matrix.browser }}
           path: tests/bin/Release/net8.0/allure-results/
@@ -199,7 +199,7 @@ jobs:
 
       - name: Upload Allure HTML report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: allure-report-${{ matrix.browser }}
           path: ${{ runner.temp }}/allure-report/
@@ -208,7 +208,7 @@ jobs:
 
       - name: Upload screenshots and failure traces
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-artifacts-${{ matrix.browser }}
           path: ${{ runner.temp }}/test-artifacts/
